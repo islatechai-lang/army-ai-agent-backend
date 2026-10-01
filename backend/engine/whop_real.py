@@ -37,6 +37,7 @@ class WhopRealEngine:
             root_dir / "frontend" / "node_modules" / ".bin" / "whop.cmd",
             root_dir / "node_modules" / ".bin" / "whop",
             root_dir / "node_modules" / ".bin" / "whop.cmd",
+            Path("/tmp/npm-global/bin/whop"),
         ]
         for p in possible_paths:
             if p.exists():
