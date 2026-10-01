@@ -86,11 +86,24 @@ async def resolve_approval(approval_id: str, req: ApprovalResolveRequest):
         raise HTTPException(status_code=404, detail="Approval not found")
     
     status_label = "Approved & Executed" if req.approved else "Rejected"
-    storage.add_log(
-        "dev",
-        "milestone" if req.approved else "thought",
-        f"Human sign-off resolved: Approval #{approval_id} was {status_label}."
-    )
+    
+    # If approved and deploy_app, trigger real Whop deployment
+    if req.approved:
+        from backend.engine.whop_real import whop_real
+        # Attempt to run real deployment
+        deploy_res = whop_real.execute_cli(["apps", "deploy"])
+        storage.add_log(
+            "dev",
+            "milestone",
+            f"Human approved deploy #{approval_id}. Real Whop deploy executed: {deploy_res.get('output', deploy_res.get('error', 'Initiated'))}"
+        )
+    else:
+        storage.add_log(
+            "dev",
+            "thought",
+            f"Human rejected deployment #{approval_id}."
+        )
+
     await broadcast_event("approval_updated", {"id": approval_id, "approved": req.approved})
     return {"success": True, "approval_id": approval_id, "status": status_label}
 

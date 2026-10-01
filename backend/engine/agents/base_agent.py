@@ -73,13 +73,25 @@ class BaseAgent:
                 except:
                     args = {}
                 
-                self.log("tool_call", f"Calling {fn_name}({json.dumps(args)})", business_id, {"tool": fn_name, "args": args})
+                # Execute real Whop tool
+                self.log("tool_call", f"Calling real Whop tool: {fn_name}({json.dumps(args)})", business_id, {"tool": fn_name, "args": args})
                 
-                # Execute tool via Whop MCP
-                server_type = "docs" if "doc" in fn_name else "api"
-                tool_output = await whop_mcp.call_tool(server_type, fn_name, args)
+                from backend.engine.whop_real import whop_real
+                if "product" in fn_name and "create" in fn_name:
+                    p_name = args.get("name") or "New Digital Product"
+                    p_desc = args.get("description") or ""
+                    tool_output = whop_real.create_real_product(p_name, p_desc)
+                elif "promo" in fn_name:
+                    code = args.get("code") or "VIP50"
+                    discount = int(args.get("discount_percent") or 50)
+                    tool_output = whop_real.create_real_promo_code(code, discount)
+                elif "stat" in fn_name:
+                    tool_output = whop_real.get_real_stats()
+                else:
+                    server_type = "docs" if "doc" in fn_name else "api"
+                    tool_output = await whop_mcp.call_tool(server_type, fn_name, args)
                 
-                self.log("tool_result", f"Result from {fn_name}: {json.dumps(tool_output)[:180]}", business_id)
+                self.log("tool_result", f"Real Whop Output: {json.dumps(tool_output)[:200]}", business_id)
                 executed_tools.append({"tool": fn_name, "result": tool_output})
 
         self.set_status("idle", "Awaiting next directive")
