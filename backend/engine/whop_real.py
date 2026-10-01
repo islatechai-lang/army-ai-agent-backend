@@ -23,11 +23,14 @@ class WhopRealEngine:
     def check_auth_status(self) -> Dict[str, Any]:
         """Checks if the system has an active Whop CLI login."""
         try:
+            env = os.environ.copy()
+            env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
             res = subprocess.run(
                 ["whop", "auth", "status", "--format", "json"],
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env=env,
                 shell=True
             )
             if res.returncode == 0 and res.stdout.strip():
@@ -48,6 +51,7 @@ class WhopRealEngine:
         logger.info(f"Executing real Whop CLI: {' '.join(cmd)}")
         try:
             env = os.environ.copy()
+            env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
             api_key = self.get_api_key()
             if api_key:
                 env["WHOP_API_KEY"] = api_key
