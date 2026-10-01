@@ -3,7 +3,7 @@ services:
     name: whop-agent-army
     env: python
     plan: free
-    buildCommand: "npm --prefix frontend install && npm --prefix frontend run build && pip install -r requirements.txt && npm install -g @whop/cli"
+    buildCommand: "npm --prefix frontend install && npm --prefix frontend run build && pip install -r requirements.txt"
     startCommand: "uvicorn backend.server:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION

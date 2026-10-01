@@ -20,13 +20,38 @@ class WhopRealEngine:
     def get_api_key(self) -> Optional[str]:
         return os.getenv("WHOP_API_KEY") or None
 
+    def get_whop_cmd(self) -> List[str]:
+        """Resolves the whop CLI executable path across local and containerized environments."""
+        import shutil
+        from pathlib import Path
+
+        # 1. Global PATH
+        bin_path = shutil.which("whop")
+        if bin_path:
+            return [bin_path]
+
+        # 2. Local frontend or root node_modules/.bin
+        root_dir = Path(__file__).resolve().parent.parent.parent
+        possible_paths = [
+            root_dir / "frontend" / "node_modules" / ".bin" / "whop",
+            root_dir / "frontend" / "node_modules" / ".bin" / "whop.cmd",
+            root_dir / "node_modules" / ".bin" / "whop",
+            root_dir / "node_modules" / ".bin" / "whop.cmd",
+        ]
+        for p in possible_paths:
+            if p.exists():
+                return [str(p)]
+
+        # 3. Fallback to npx
+        return ["npx", "@whop/cli"]
+
     def check_auth_status(self) -> Dict[str, Any]:
         """Checks if the system has an active Whop CLI login."""
         try:
             env = os.environ.copy()
             env["NODE_TLS_REJECT_UNAUTHORIZED"] = "0"
             res = subprocess.run(
-                ["whop", "auth", "status", "--format", "json"],
+                self.get_whop_cmd() + ["auth", "status", "--format", "json"],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -47,7 +72,7 @@ class WhopRealEngine:
         Executes a real Whop CLI command and parses JSON output.
         Example: execute_cli(["products", "list", "--format", "json"])
         """
-        cmd = ["whop"] + args
+        cmd = self.get_whop_cmd() + args
         logger.info(f"Executing real Whop CLI: {' '.join(cmd)}")
         try:
             env = os.environ.copy()
