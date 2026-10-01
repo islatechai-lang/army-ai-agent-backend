@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import type { Agent, AgentLog, Task, Business, Approval } from './types';
+import type { Agent, AgentLog, Task, Business, Approval, AgentDiscussion } from './types';
 import { VirtualOffice } from './components/VirtualOffice';
 import { LiveFeed } from './components/LiveFeed';
 import { KanbanBoard } from './components/KanbanBoard';
 import { ApprovalsModal } from './components/ApprovalsModal';
 import { AgentDetailModal } from './components/AgentDetailModal';
 import { SettingsModal } from './components/SettingsModal';
-import { Rocket, Sparkles, Building2, DollarSign, Users, RefreshCw, Radio, CheckCircle, ExternalLink, Key } from 'lucide-react';
+import { AgentDiscussionFeed } from './components/AgentDiscussionFeed';
+import { Rocket, Sparkles, Building2, DollarSign, Users, RefreshCw, Radio, CheckCircle, ExternalLink, Key, ShoppingBag, Zap } from 'lucide-react';
 
 const API_BASE = typeof window !== 'undefined' && window.location.port === '5173' ? 'http://localhost:8000' : '';
 
 export function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [logs, setLogs] = useState<AgentLog[]>([]);
+  const [discussions, setDiscussions] = useState<AgentDiscussion[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -20,24 +22,31 @@ export function App() {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [nicheInput, setNicheInput] = useState<string>('');
   const [isLaunching, setIsLaunching] = useState<boolean>(false);
+  const [isAutonomous, setIsAutonomous] = useState<boolean>(true);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
   // Initial Fetch & Polling Fallback
   const fetchData = async () => {
     try {
-      const [agRes, lgRes, tkRes, bzRes, apRes] = await Promise.all([
+      const [agRes, lgRes, tkRes, bzRes, apRes, dcRes, atRes] = await Promise.all([
         fetch(`${API_BASE}/api/agents`).then(r => r.json()).catch(() => []),
         fetch(`${API_BASE}/api/logs`).then(r => r.json()).catch(() => []),
         fetch(`${API_BASE}/api/tasks`).then(r => r.json()).catch(() => []),
         fetch(`${API_BASE}/api/businesses`).then(r => r.json()).catch(() => []),
-        fetch(`${API_BASE}/api/approvals`).then(r => r.json()).catch(() => [])
+        fetch(`${API_BASE}/api/approvals`).then(r => r.json()).catch(() => []),
+        fetch(`${API_BASE}/api/discussions`).then(r => r.json()).catch(() => []),
+        fetch(`${API_BASE}/api/autonomous/status`).then(r => r.json()).catch(() => ({ is_running: true }))
       ]);
       setAgents(agRes);
       setLogs(lgRes);
       setTasks(tkRes);
       setBusinesses(bzRes);
       setApprovals(apRes);
+      setDiscussions(dcRes);
+      if (atRes && typeof atRes.is_running === 'boolean') {
+        setIsAutonomous(atRes.is_running);
+      }
     } catch (e) {
       console.error('Error fetching data from API:', e);
     }
@@ -63,9 +72,14 @@ export function App() {
           if (msg.type === 'init') {
             setAgents(msg.data.agents || []);
             setLogs(msg.data.logs || []);
+            setDiscussions(msg.data.discussions || []);
             setTasks(msg.data.tasks || []);
             setBusinesses(msg.data.businesses || []);
             setApprovals(msg.data.approvals || []);
+          } else if (msg.type === 'agent_discussion') {
+            setDiscussions(prev => [msg.data, ...prev]);
+          } else if (msg.type === 'autonomous_status_changed') {
+            setIsAutonomous(msg.data.is_running);
           } else {
             fetchData();
           }
@@ -120,6 +134,20 @@ export function App() {
     }
   };
 
+  const handleToggleAutonomous = async () => {
+    try {
+      const next = !isAutonomous;
+      setIsAutonomous(next);
+      await fetch(`${API_BASE}/api/autonomous/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ running: next })
+      });
+    } catch (err) {
+      console.error('Toggle autonomous error:', err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#07080d] text-gray-100 flex flex-col font-sans">
       {/* Top Navigation Bar */}
@@ -161,6 +189,18 @@ export function App() {
               <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
               <span>{wsConnected ? 'Live' : 'Polling'}</span>
             </div>
+
+            <button
+              onClick={handleToggleAutonomous}
+              className={`px-3 py-1.5 rounded-xl border flex items-center space-x-1.5 transition-all font-mono cursor-pointer ${
+                isAutonomous
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                  : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
+              }`}
+            >
+              <Zap className={`w-3.5 h-3.5 ${isAutonomous ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`} />
+              <span>{isAutonomous ? '24/7 Army: ON' : 'Army: PAUSED'}</span>
+            </button>
 
             <button
               onClick={() => setIsSettingsOpen(true)}
@@ -247,27 +287,57 @@ export function App() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {businesses.map((biz) => (
-                <div key={biz.id} className="p-3.5 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between">
-                  <div>
-                    <h4 className="font-bold text-xs text-white flex items-center gap-1.5">
-                      <span>{biz.name}</span>
-                      <span className="text-[10px] text-emerald-400 font-normal">Active</span>
-                    </h4>
-                    <span className="text-[11px] text-gray-500 font-mono">@{biz.handle} &bull; {biz.niche}</span>
+                <div key={biz.id} className="p-4 rounded-xl bg-black/40 border border-white/5 flex flex-col justify-between gap-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-bold text-xs text-white flex items-center gap-1.5">
+                        <span>{biz.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-normal">Active</span>
+                      </h4>
+                      <span className="text-[11px] text-gray-500 font-mono">@{biz.handle} &bull; {biz.niche}</span>
+                    </div>
+                    <a
+                      href={`https://whop.com/${biz.handle}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                      title="Open store on Whop"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
                   </div>
-                  <a
-                    href={`https://whop.com/${biz.handle}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+
+                  <div className="flex items-center justify-between pt-2.5 border-t border-white/5 gap-2">
+                    {biz.promo_code ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-pink-500/10 border border-pink-500/20 text-pink-400 font-mono">
+                        Code: {biz.promo_code}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-gray-600 font-mono">Standard Tier</span>
+                    )}
+
+                    {biz.checkout_url ? (
+                      <a
+                        href={biz.checkout_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-[11px] font-mono flex items-center gap-1 transition-all hover:scale-105"
+                      >
+                        <ShoppingBag className="w-3 h-3 text-emerald-400" />
+                        <span>Live Checkout</span>
+                      </a>
+                    ) : (
+                      <span className="text-[10px] text-gray-500 font-mono">Pricing Pending</span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         )}
+
+        {/* 24/7 Agent Army Team Discussions */}
+        <AgentDiscussionFeed discussions={discussions} />
 
         {/* Two-Column Operations Layout: Terminal & Kanban */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

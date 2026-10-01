@@ -35,13 +35,25 @@ export interface Task {
 export interface Business {
   id: string;
   whop_biz_id: string;
+  whop_product_id?: string;
   name: string;
   handle: string;
   niche: string;
   category?: string;
   status: string;
+  checkout_url?: string;
+  promo_code?: string;
   mrr_cents: number;
   total_revenue_cents?: number;
+  created_at: string;
+}
+
+export interface AgentDiscussion {
+  id: number;
+  sender_id: string;
+  recipient_id: string;
+  business_id?: string;
+  message: string;
   created_at: string;
 }
 

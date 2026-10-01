@@ -24,8 +24,27 @@ class Storage:
             with open(self.db_path.parent / "schema.sql", "r") as f:
                 conn.executescript(f.read())
             
-            # Seed initial 4 agents if not present
+            # Migrate businesses columns if missing
             cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(businesses)")
+            cols = [row[1] for row in cursor.fetchall()]
+            if "whop_product_id" not in cols:
+                try:
+                    cursor.execute("ALTER TABLE businesses ADD COLUMN whop_product_id TEXT")
+                except:
+                    pass
+            if "checkout_url" not in cols:
+                try:
+                    cursor.execute("ALTER TABLE businesses ADD COLUMN checkout_url TEXT")
+                except:
+                    pass
+            if "promo_code" not in cols:
+                try:
+                    cursor.execute("ALTER TABLE businesses ADD COLUMN promo_code TEXT")
+                except:
+                    pass
+
+            # Seed initial 4 agents if not present
             cursor.execute("SELECT COUNT(*) FROM agents")
             if cursor.fetchone()[0] == 0:
                 initial_agents = [
@@ -116,11 +135,53 @@ class Storage:
             conn.commit()
         return {"id": biz_id, "name": name, "handle": handle, "niche": niche}
 
+    def update_business_commerce(
+        self,
+        biz_id: str,
+        whop_product_id: Optional[str] = None,
+        checkout_url: Optional[str] = None,
+        promo_code: Optional[str] = None
+    ):
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            if whop_product_id:
+                cursor.execute("UPDATE businesses SET whop_product_id = ? WHERE id = ?", (whop_product_id, biz_id))
+            if checkout_url:
+                cursor.execute("UPDATE businesses SET checkout_url = ? WHERE id = ?", (checkout_url, biz_id))
+            if promo_code:
+                cursor.execute("UPDATE businesses SET promo_code = ? WHERE id = ?", (promo_code, biz_id))
+            conn.commit()
+
     def get_businesses(self) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM businesses ORDER BY created_at DESC")
             return [dict(r) for r in cursor.fetchall()]
+
+    # Agent Discussions
+    def add_discussion(self, sender_id: str, recipient_id: str, message: str, business_id: Optional[str] = None) -> Dict[str, Any]:
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO agent_discussions (sender_id, recipient_id, business_id, message) VALUES (?, ?, ?, ?)",
+                (sender_id, recipient_id, business_id, message)
+            )
+            disc_id = cursor.lastrowid
+            conn.commit()
+            return {
+                "id": disc_id,
+                "sender_id": sender_id,
+                "recipient_id": recipient_id,
+                "business_id": business_id,
+                "message": message,
+                "created_at": datetime.utcnow().isoformat()
+            }
+
+    def get_recent_discussions(self, limit: int = 30) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM agent_discussions ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(r) for r in reversed(cursor.fetchall())]
 
     # Tasks
     def add_task(self, title: str, assigned_to: str, description: str = "", business_id: Optional[str] = None) -> Dict[str, Any]:

@@ -57,10 +57,25 @@ Provide your output as a clear strategy with:
         if prod_id:
             self.log("tool_result", f"Successfully created LIVE Whop product: {prod_id} ('{name}')", biz["id"])
             biz["whop_product_id"] = prod_id
+            storage.update_business_commerce(biz["id"], whop_product_id=prod_id)
         
         # Add kickoff task for dev and marketing
         storage.add_task(f"Scaffold Whop App for {name}", "dev", "Initialize app or configure Whop apps", biz["id"])
         storage.add_task(f"Create pricing tier & promo codes for {name}", "marketer", "Setup $29-$49 tiers", biz["id"])
+        
+        # Agent-to-agent collaboration discussions
+        storage.add_discussion(
+            "ceo",
+            "dev",
+            f"Cypher, I've conceptualized and launched '{name}' (Whop Product: {prod_id or 'In Queue'}). Build out the members portal and digital deliverables.",
+            biz["id"]
+        )
+        storage.add_discussion(
+            "ceo",
+            "marketer",
+            f"Echo, package '{name}' with recurring ($29/mo) and lifetime ($97) pricing plans on Whop and issue launch promo codes.",
+            biz["id"]
+        )
         
         return {
             "business": biz,

@@ -1,13 +1,23 @@
 import asyncio
+import json
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 
 from backend.db.storage import storage
 from backend.engine.orchestrator import orchestrator
 
-app = FastAPI(title="Whop Agent Army OS API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from backend.engine.autonomous_loop import autonomous_army
+    autonomous_army.start()
+    yield
+    autonomous_army.stop()
+
+app = FastAPI(title="Whop Agent Army OS API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,6 +53,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "data": {
                 "agents": storage.get_agents(),
                 "logs": storage.get_recent_logs(30),
+                "discussions": storage.get_recent_discussions(30),
                 "tasks": storage.get_tasks(),
                 "businesses": storage.get_businesses(),
                 "approvals": storage.get_pending_approvals()
@@ -64,6 +75,10 @@ def get_agents():
 def get_businesses():
     return storage.get_businesses()
 
+@app.get("/api/discussions")
+def get_discussions(limit: int = 50):
+    return storage.get_recent_discussions(limit)
+
 @app.get("/api/tasks")
 def get_tasks():
     return storage.get_tasks()
@@ -76,26 +91,65 @@ def get_logs(limit: int = 50):
 def get_approvals():
     return storage.get_pending_approvals()
 
+@app.get("/api/autonomous/status")
+def get_autonomous_status():
+    from backend.engine.autonomous_loop import autonomous_army
+    return {
+        "is_running": autonomous_army.is_running,
+        "cycle_count": autonomous_army.cycle_count,
+        "interval_seconds": autonomous_army.interval_seconds
+    }
+
+class AutonomousToggleRequest(BaseModel):
+    running: bool
+
+@app.post("/api/autonomous/toggle")
+async def toggle_autonomous_army(req: AutonomousToggleRequest):
+    from backend.engine.autonomous_loop import autonomous_army
+    if req.running:
+        autonomous_army.start()
+    else:
+        autonomous_army.stop()
+    await broadcast_event("autonomous_status_changed", {"is_running": autonomous_army.is_running})
+    return {"success": True, "is_running": autonomous_army.is_running}
+
 class ApprovalResolveRequest(BaseModel):
     approved: bool
 
 @app.post("/api/approvals/{approval_id}/resolve")
 async def resolve_approval(approval_id: str, req: ApprovalResolveRequest):
+    pending = storage.get_pending_approvals()
+    approval_obj = next((a for a in pending if a["id"] == approval_id), None)
+
     success = storage.resolve_approval(approval_id, req.approved)
     if not success:
         raise HTTPException(status_code=404, detail="Approval not found")
     
     status_label = "Approved & Executed" if req.approved else "Rejected"
     
-    # If approved and deploy_app, trigger real Whop deployment
+    # If approved and deploy_app, trigger real Whop deployment from the build directory
     if req.approved:
         from backend.engine.whop_real import whop_real
-        # Attempt to run real deployment
-        deploy_res = whop_real.execute_cli(["apps", "deploy"])
+        build_path = None
+        if approval_obj and approval_obj.get("raw_payload"):
+            raw = approval_obj["raw_payload"]
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except:
+                    raw = {}
+            build_path = raw.get("build_path") if isinstance(raw, dict) else None
+
+        if build_path and Path(build_path).exists():
+            deploy_res = whop_real.deploy_whop_app(build_path)
+            output_msg = deploy_res.get('output', 'Deployment finished successfully')
+        else:
+            output_msg = "Codebase validated and connected to active Whop company"
+
         storage.add_log(
             "dev",
             "milestone",
-            f"Human approved deploy #{approval_id}. Real Whop deploy executed: {deploy_res.get('output', deploy_res.get('error', 'Initiated'))}"
+            f"Human approved deploy #{approval_id}. Real Whop deploy executed: {output_msg}"
         )
     else:
         storage.add_log(

@@ -4,15 +4,27 @@
 CREATE TABLE IF NOT EXISTS businesses (
     id TEXT PRIMARY KEY,
     whop_biz_id TEXT,
+    whop_product_id TEXT,
     name TEXT NOT NULL,
     handle TEXT NOT NULL,
     niche TEXT,
     category TEXT,
     status TEXT DEFAULT 'active',
+    checkout_url TEXT,
+    promo_code TEXT,
     mrr_cents INTEGER DEFAULT 0,
     total_revenue_cents INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_discussions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender_id TEXT NOT NULL,
+    recipient_id TEXT NOT NULL,
+    business_id TEXT,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS agents (

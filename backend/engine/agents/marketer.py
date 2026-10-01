@@ -47,12 +47,53 @@ Provide:
         else:
             self.log("tool_result", f"Promo code attempt for {code}: {promo_res.get('error', 'already exists or queued')}", business_id)
 
-        self.log("milestone", f"Generated launch campaign and live promo code ({code}) for {business_name}", business_id)
+        # Retrieve business to get whop_product_id if available
+        checkout_url = None
+        businesses = storage.get_businesses()
+        biz_record = next((b for b in businesses if b["id"] == business_id), None)
+        prod_id = biz_record.get("whop_product_id") if biz_record else None
+
+        if prod_id:
+            # Create real Recurring Monthly Plan ($29/mo)
+            plan_res = whop_real.create_real_plan(
+                product_id=prod_id,
+                plan_type="renewal",
+                price=29.00,
+                billing_period=30,
+                description=f"{business_name} - Monthly VIP Pass ($29/mo)"
+            )
+            if plan_res.get("success") and plan_res.get("checkout_url"):
+                checkout_url = plan_res["checkout_url"]
+                self.log("tool_result", f"Created LIVE Whop Monthly Plan ($29/mo): {checkout_url}", business_id)
+            
+            # Also create Lifetime One-Time Plan ($97)
+            lifetime_res = whop_real.create_real_plan(
+                product_id=prod_id,
+                plan_type="one_time",
+                price=97.00,
+                description=f"{business_name} - All-Access Lifetime Pass ($97)"
+            )
+            if lifetime_res.get("success"):
+                self.log("tool_result", f"Created LIVE Whop Lifetime Plan ($97): {lifetime_res.get('checkout_url')}", business_id)
+
+            # Persist checkout_url and promo_code to business
+            storage.update_business_commerce(business_id, checkout_url=checkout_url, promo_code=code)
+
+        # Log agent-to-agent collaboration discussion
+        storage.add_discussion(
+            "marketer",
+            "ceo",
+            f"Atlas, I've created the pricing structure on Whop ($29/mo recurring & $97 lifetime) and active promo code '{code}'. Checkout link: {checkout_url or 'Created on Whop'}",
+            business_id
+        )
+
+        self.log("milestone", f"Generated launch campaign, live checkout links, and promo code ({code}) for {business_name}", business_id)
         
         return {
             "success": True,
             "campaign": res.get("content"),
             "promo_code": code,
+            "checkout_url": checkout_url,
             "promo_result": promo_res,
             "model_used": res.get("model_used")
         }
