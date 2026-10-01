@@ -46,6 +46,19 @@ async def broadcast_event(event_type: str, data: Any):
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
+
+    # Active keep-alive task sending ping every 15s to keep reverse proxies alive
+    async def keep_alive_pinger():
+        import time
+        while True:
+            await asyncio.sleep(15)
+            try:
+                await websocket.send_json({"type": "ping", "timestamp": time.time()})
+            except Exception:
+                break
+
+    pinger_task = asyncio.create_task(keep_alive_pinger())
+
     try:
         # Send initial snapshot
         await websocket.send_json({
@@ -60,9 +73,15 @@ async def websocket_endpoint(websocket: WebSocket):
             }
         })
         while True:
-            # Keep-alive
-            data = await websocket.receive_text()
+            # Receive client heartbeat or messages
+            text = await websocket.receive_text()
+            # If client sends pong or custom message, it maintains socket liveness
     except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        pinger_task.cancel()
         if websocket in active_connections:
             active_connections.remove(websocket)
 
@@ -97,7 +116,59 @@ def get_autonomous_status():
     return {
         "is_running": autonomous_army.is_running,
         "cycle_count": autonomous_army.cycle_count,
-        "interval_seconds": autonomous_army.interval_seconds
+        "interval_seconds": autonomous_army.interval_seconds,
+        "last_cycle_at": autonomous_army.last_cycle_at,
+        "next_cycle_seconds": autonomous_army.get_seconds_until_next_cycle(),
+        "active_ws_connections": len(active_connections)
+    }
+
+@app.post("/api/autonomous/trigger")
+async def trigger_autonomous_cycle():
+    """Forces an immediate autonomous army execution cycle."""
+    from backend.engine.autonomous_loop import autonomous_army
+    
+    async def run_cycle():
+        try:
+            await autonomous_army.execute_autonomous_cycle()
+        except Exception as e:
+            storage.add_log("system", "error", f"Manual cycle error: {str(e)}")
+
+    asyncio.create_task(run_cycle())
+    return {
+        "success": True,
+        "message": "Autonomous cycle initiated immediately",
+        "current_cycle": autonomous_army.cycle_count
+    }
+
+@app.get("/api/system/diagnostics")
+def get_system_diagnostics():
+    from backend.engine.whop_real import whop_real
+    from backend.engine.autonomous_loop import autonomous_army
+    import os
+
+    auth_info = whop_real.check_auth_status()
+    biz_list = storage.get_businesses()
+    prod_count = len([b for b in biz_list if b.get("whop_product_id")])
+    plans_count = len([b for b in biz_list if b.get("checkout_url")])
+
+    return {
+        "whop_auth": auth_info,
+        "whop_biz_id": os.getenv("WHOP_BIZ_ID", "biz_wDSHPXqL0Ew9Jr"),
+        "autonomous": {
+            "is_running": autonomous_army.is_running,
+            "cycle_count": autonomous_army.cycle_count,
+            "interval_seconds": autonomous_army.interval_seconds,
+            "next_cycle_in_seconds": autonomous_army.get_seconds_until_next_cycle(),
+            "last_cycle_at": autonomous_army.last_cycle_at
+        },
+        "stats": {
+            "total_businesses": len(biz_list),
+            "live_products": prod_count,
+            "live_checkout_plans": plans_count,
+            "pending_approvals": len(storage.get_pending_approvals()),
+            "total_logs": len(storage.get_recent_logs(200)),
+            "active_ws_clients": len(active_connections)
+        }
     }
 
 class AutonomousToggleRequest(BaseModel):
@@ -125,32 +196,42 @@ async def resolve_approval(approval_id: str, req: ApprovalResolveRequest):
     if not success:
         raise HTTPException(status_code=404, detail="Approval not found")
     
-    status_label = "Approved & Executed" if req.approved else "Rejected"
+    status_label = "Approved & Executing" if req.approved else "Rejected"
     
-    # If approved and deploy_app, trigger real Whop deployment from the build directory
+    # Broadcast UI update immediately so user button never hangs!
+    await broadcast_event("approval_updated", {"id": approval_id, "approved": req.approved})
+
+    # If approved and deploy_app, run deployment asynchronously in background
     if req.approved:
-        from backend.engine.whop_real import whop_real
-        build_path = None
-        if approval_obj and approval_obj.get("raw_payload"):
-            raw = approval_obj["raw_payload"]
-            if isinstance(raw, str):
-                try:
-                    raw = json.loads(raw)
-                except:
-                    raw = {}
-            build_path = raw.get("build_path") if isinstance(raw, dict) else None
+        async def run_async_deploy():
+            from backend.engine.whop_real import whop_real
+            build_path = None
+            if approval_obj and approval_obj.get("raw_payload"):
+                raw = approval_obj["raw_payload"]
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw)
+                    except:
+                        raw = {}
+                build_path = raw.get("build_path") if isinstance(raw, dict) else None
 
-        if build_path and Path(build_path).exists():
-            deploy_res = whop_real.deploy_whop_app(build_path)
-            output_msg = deploy_res.get('output', 'Deployment finished successfully')
-        else:
-            output_msg = "Codebase validated and connected to active Whop company"
+            if build_path and Path(build_path).exists():
+                deploy_res = whop_real.deploy_whop_app(build_path)
+                output_msg = deploy_res.get('output', 'Deployment finished successfully')
+            else:
+                output_msg = "Codebase validated and connected to active Whop company"
 
-        storage.add_log(
-            "dev",
-            "milestone",
-            f"Human approved deploy #{approval_id}. Real Whop deploy executed: {output_msg}"
-        )
+            storage.add_log(
+                "dev",
+                "milestone",
+                f"Human approval confirmed for #{approval_id}. Real Whop deploy executed: {output_msg}"
+            )
+            await broadcast_event("deployment_completed", {
+                "approval_id": approval_id,
+                "output": output_msg
+            })
+
+        asyncio.create_task(run_async_deploy())
     else:
         storage.add_log(
             "dev",
@@ -158,7 +239,6 @@ async def resolve_approval(approval_id: str, req: ApprovalResolveRequest):
             f"Human rejected deployment #{approval_id}."
         )
 
-    await broadcast_event("approval_updated", {"id": approval_id, "approved": req.approved})
     return {"success": True, "approval_id": approval_id, "status": status_label}
 
 class LaunchRequest(BaseModel):

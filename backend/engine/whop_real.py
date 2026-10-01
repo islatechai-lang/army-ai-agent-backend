@@ -296,5 +296,57 @@ class WhopRealEngine:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def create_real_company(self, title: str) -> Dict[str, Any]:
+        """Creates a real business account on Whop."""
+        args = ["accounts", "create", "--title", title, "--format", "json"]
+        return self.execute_cli(args)
+
+    def attach_real_experience(self, experience_id: str, product_id: str) -> Dict[str, Any]:
+        """
+        Attaches an experience (such as a Forum, Course, or App) to a product.
+        POST https://api.whop.com/api/v1/experiences/{id}/attach
+        """
+        api_key = self.get_api_key()
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        try:
+            with httpx.Client(headers=headers, timeout=15.0, verify=False) as client:
+                res = client.post(
+                    f"https://api.whop.com/api/v1/experiences/{experience_id}/attach",
+                    json={"product_id": product_id}
+                )
+                if res.status_code in [200, 201]:
+                    return {"success": True, "data": res.json()}
+                return {"success": False, "status_code": res.status_code, "error": res.text}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def create_real_course(self, experience_id: str, title: str, tagline: str = "") -> Dict[str, Any]:
+        """
+        Creates a new course module within an experience.
+        POST https://api.whop.com/api/v1/courses
+        """
+        api_key = self.get_api_key()
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "experience_id": experience_id,
+            "title": title
+        }
+        if tagline:
+            payload["tagline"] = tagline
+        try:
+            with httpx.Client(headers=headers, timeout=15.0, verify=False) as client:
+                res = client.post("https://api.whop.com/api/v1/courses", json=payload)
+                if res.status_code in [200, 201]:
+                    return {"success": True, "data": res.json()}
+                return {"success": False, "status_code": res.status_code, "error": res.text}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
 # Global Singleton
 whop_real = WhopRealEngine()

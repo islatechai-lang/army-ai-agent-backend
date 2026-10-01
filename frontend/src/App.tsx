@@ -7,7 +7,8 @@ import { ApprovalsModal } from './components/ApprovalsModal';
 import { AgentDetailModal } from './components/AgentDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AgentDiscussionFeed } from './components/AgentDiscussionFeed';
-import { Rocket, Sparkles, Building2, DollarSign, Users, RefreshCw, Radio, CheckCircle, ExternalLink, Key, ShoppingBag, Zap } from 'lucide-react';
+import { DebugInspector } from './components/DebugInspector';
+import { Rocket, Sparkles, Building2, DollarSign, Users, RefreshCw, Radio, CheckCircle, ExternalLink, Key, ShoppingBag, Zap, Bug, Activity, Terminal } from 'lucide-react';
 
 const API_BASE = typeof window !== 'undefined' && window.location.port === '5173' ? 'http://localhost:8000' : '';
 
@@ -24,7 +25,11 @@ export function App() {
   const [isLaunching, setIsLaunching] = useState<boolean>(false);
   const [isAutonomous, setIsAutonomous] = useState<boolean>(true);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const [wsLatency, setWsLatency] = useState<number>(18);
+  const [cycleCount, setCycleCount] = useState<number>(1);
+  const [nextCycleIn, setNextCycleIn] = useState<number>(60);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isDebugOpen, setIsDebugOpen] = useState<boolean>(false);
 
   // Initial Fetch & Polling Fallback
   const fetchData = async () => {
@@ -36,7 +41,7 @@ export function App() {
         fetch(`${API_BASE}/api/businesses`).then(r => r.json()).catch(() => []),
         fetch(`${API_BASE}/api/approvals`).then(r => r.json()).catch(() => []),
         fetch(`${API_BASE}/api/discussions`).then(r => r.json()).catch(() => []),
-        fetch(`${API_BASE}/api/autonomous/status`).then(r => r.json()).catch(() => ({ is_running: true }))
+        fetch(`${API_BASE}/api/autonomous/status`).then(r => r.json()).catch(() => ({ is_running: true, cycle_count: 1, next_cycle_seconds: 60 }))
       ]);
       setAgents(agRes);
       setLogs(lgRes);
@@ -44,8 +49,10 @@ export function App() {
       setBusinesses(bzRes);
       setApprovals(apRes);
       setDiscussions(dcRes);
-      if (atRes && typeof atRes.is_running === 'boolean') {
-        setIsAutonomous(atRes.is_running);
+      if (atRes) {
+        if (typeof atRes.is_running === 'boolean') setIsAutonomous(atRes.is_running);
+        if (typeof atRes.cycle_count === 'number') setCycleCount(atRes.cycle_count);
+        if (typeof atRes.next_cycle_seconds === 'number') setNextCycleIn(atRes.next_cycle_seconds);
       }
     } catch (e) {
       console.error('Error fetching data from API:', e);
@@ -55,20 +62,55 @@ export function App() {
   useEffect(() => {
     fetchData();
 
+    // Countdown timer for next autonomous cycle
+    const countdownTimer = setInterval(() => {
+      setNextCycleIn(prev => (prev > 1 ? prev - 1 : 60));
+    }, 1000);
+
     // WebSocket Connection
     let ws: WebSocket | null = null;
+    let reconnectTimeout: any = null;
+
     const connectWs = () => {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsHost = window.location.port === '5173' ? 'localhost:8000' : window.location.host;
-      ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/live`);
-      ws.onopen = () => setWsConnected(true);
+      try {
+        ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/live`);
+      } catch (err) {
+        console.warn('WS instantiate error:', err);
+        return;
+      }
+
+      ws.onopen = () => {
+        setWsConnected(true);
+      };
+
       ws.onclose = () => {
         setWsConnected(false);
-        setTimeout(connectWs, 3000); // Reconnect
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = setTimeout(connectWs, 3000); // Reconnect
       };
+
+      ws.onerror = () => {
+        setWsConnected(false);
+      };
+
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+
+          // Handle server heartbeat ping
+          if (msg.type === 'ping') {
+            if (msg.timestamp) {
+              const latency = Math.max(1, Math.round(Date.now() - msg.timestamp * 1000));
+              setWsLatency(latency);
+            }
+            try {
+              ws?.send(JSON.stringify({ type: 'pong' }));
+            } catch {}
+            return; // Don't trigger refetch on ping
+          }
+
           if (msg.type === 'init') {
             setAgents(msg.data.agents || []);
             setLogs(msg.data.logs || []);
@@ -80,6 +122,10 @@ export function App() {
             setDiscussions(prev => [msg.data, ...prev]);
           } else if (msg.type === 'autonomous_status_changed') {
             setIsAutonomous(msg.data.is_running);
+          } else if (msg.type === 'autonomous_cycle_completed') {
+            if (msg.data?.cycle) setCycleCount(msg.data.cycle);
+            setNextCycleIn(60);
+            fetchData();
           } else {
             fetchData();
           }
@@ -90,10 +136,12 @@ export function App() {
     };
 
     connectWs();
-    const interval = setInterval(fetchData, 4000); // Polling safeguard
+    const interval = setInterval(fetchData, 8000); // Secondary fallback
 
     return () => {
       clearInterval(interval);
+      clearInterval(countdownTimer);
+      clearTimeout(reconnectTimeout);
       if (ws) ws.close();
     };
   }, []);
@@ -148,66 +196,113 @@ export function App() {
     }
   };
 
+  const handleTriggerPulse = async () => {
+    try {
+      await fetch(`${API_BASE}/api/autonomous/trigger`, { method: 'POST' });
+      setTimeout(fetchData, 600);
+    } catch (err) {
+      console.error('Manual pulse trigger error:', err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#07080d] text-gray-100 flex flex-col font-sans">
+      {/* Top Diagnostics Status Banner */}
+      <div className="bg-[#090b14] border-b border-white/5 px-4 py-1.5 text-[11px] font-mono flex flex-wrap items-center justify-between text-gray-400 gap-2">
+        <div className="flex items-center space-x-3 overflow-x-auto">
+          <span className="flex items-center gap-1.5 text-gray-300">
+            <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-400 animate-ping' : 'bg-rose-400 animate-pulse'}`} />
+            <span>{wsConnected ? `Live Gateway (${wsLatency}ms)` : 'Reconnecting Gateway...'}</span>
+          </span>
+          <span className="text-gray-600 hidden sm:inline">&bull;</span>
+          <span className="text-indigo-400 hidden sm:inline">Whop: biz_wDSHPXqL0Ew9Jr</span>
+          <span className="text-gray-600 hidden sm:inline">&bull;</span>
+          <span className="text-amber-300">Pulse #{cycleCount} (in {nextCycleIn}s)</span>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleTriggerPulse}
+            className="flex items-center gap-1 text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 transition-colors cursor-pointer"
+          >
+            <Activity className="w-3 h-3" />
+            <span>Pulse Now</span>
+          </button>
+          <button
+            onClick={() => setIsDebugOpen(true)}
+            className="flex items-center gap-1 text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 transition-colors cursor-pointer"
+          >
+            <Bug className="w-3 h-3" />
+            <span>Diagnostics</span>
+          </button>
+        </div>
+      </div>
+
       {/* Top Navigation Bar */}
-      <header className="border-b border-white/10 bg-[#0d0f18]/90 backdrop-blur-md sticky top-0 z-40 px-6 py-4">
+      <header className="border-b border-white/10 bg-[#0d0f18]/90 backdrop-blur-md sticky top-0 z-40 px-4 sm:px-6 py-4">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="font-bold text-lg text-white tracking-wide">WHOP AGENT ARMY</h1>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
-                  v1.0 OS
-                </span>
+          <div className="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-start">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                <Sparkles className="w-5 h-5 text-white" />
               </div>
-              <p className="text-xs text-gray-400">Autonomous Business Creation & Operations Mesh</p>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h1 className="font-bold text-base sm:text-lg text-white tracking-wide">WHOP AGENT ARMY</h1>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                    v1.0 OS
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-gray-400">Autonomous Business Creation & Operations Mesh</p>
+              </div>
             </div>
+
+            {/* Mobile-only diagnostics quick button */}
+            <button
+              onClick={() => setIsDebugOpen(true)}
+              className="md:hidden p-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+              title="Open Diagnostics"
+            >
+              <Terminal className="w-4 h-4" />
+            </button>
           </div>
 
-          {/* Quick Metrics Bar */}
-          <div className="flex items-center space-x-4 text-xs font-mono">
-            <div className="px-3.5 py-1.5 rounded-xl bg-black/40 border border-white/5 flex items-center space-x-2">
-              <Building2 className="w-4 h-4 text-purple-400" />
-              <span className="text-gray-400">Businesses:</span>
+          {/* Quick Metrics Bar - Fully Responsive */}
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-3 w-full md:w-auto text-xs font-mono">
+            <div className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between sm:justify-start space-x-2">
+              <div className="flex items-center space-x-1.5">
+                <Building2 className="w-3.5 h-3.5 text-purple-400" />
+                <span className="text-gray-400">Stores:</span>
+              </div>
               <span className="font-bold text-white">{businesses.length}</span>
             </div>
-            <div className="px-3.5 py-1.5 rounded-xl bg-black/40 border border-white/5 flex items-center space-x-2">
-              <Users className="w-4 h-4 text-emerald-400" />
-              <span className="text-gray-400">Army:</span>
-              <span className="font-bold text-white">4 Specialized</span>
-            </div>
-            <div className="px-3.5 py-1.5 rounded-xl bg-black/40 border border-white/5 flex items-center space-x-2">
-              <DollarSign className="w-4 h-4 text-amber-400" />
-              <span className="text-gray-400">Token Cost:</span>
-              <span className="font-bold text-emerald-400">$0.00 (Free Mesh)</span>
-            </div>
-            <div className="flex items-center space-x-1.5 text-[11px] text-gray-400 pl-2">
-              <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-              <span>{wsConnected ? 'Live' : 'Polling'}</span>
+
+            <div className="px-3 py-1.5 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between sm:justify-start space-x-2">
+              <div className="flex items-center space-x-1.5">
+                <Users className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-gray-400">Army:</span>
+              </div>
+              <span className="font-bold text-white">4 Active</span>
             </div>
 
             <button
               onClick={handleToggleAutonomous}
-              className={`px-3 py-1.5 rounded-xl border flex items-center space-x-1.5 transition-all font-mono cursor-pointer ${
+              className={`min-h-[38px] px-3 py-1.5 rounded-xl border flex items-center justify-center space-x-1.5 transition-all font-mono cursor-pointer ${
                 isAutonomous
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
                   : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
               }`}
             >
               <Zap className={`w-3.5 h-3.5 ${isAutonomous ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`} />
-              <span>{isAutonomous ? '24/7 Army: ON' : 'Army: PAUSED'}</span>
+              <span className="text-[11px]">{isAutonomous ? '24/7 Army: ON' : 'Army: PAUSED'}</span>
             </button>
 
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 flex items-center space-x-1.5 transition-colors font-mono cursor-pointer"
+              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 flex items-center justify-center space-x-1.5 transition-colors font-mono cursor-pointer"
             >
               <Key className="w-3.5 h-3.5" />
-              <span>Keys / Config</span>
+              <span className="text-[11px]">Keys / Config</span>
             </button>
           </div>
         </div>
@@ -359,6 +454,20 @@ export function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         apiBase={API_BASE}
+      />
+
+      {/* Realtime System Diagnostics & Live Trace Modal */}
+      <DebugInspector
+        isOpen={isDebugOpen}
+        onClose={() => setIsDebugOpen(false)}
+        wsConnected={wsConnected}
+        wsLatency={wsLatency}
+        isAutonomous={isAutonomous}
+        cycleCount={cycleCount}
+        nextCycleIn={nextCycleIn}
+        logs={logs}
+        businesses={businesses}
+        onTriggerPulse={handleTriggerPulse}
       />
     </div>
   );

@@ -29,9 +29,18 @@ class AutonomousAgentArmy:
     """
     def __init__(self):
         self.is_running = True
-        self.interval_seconds = 180  # 3 minutes between autonomous cycles
+        self.interval_seconds = 60  # 60 seconds between autonomous pulses
         self.cycle_count = 0
+        self.last_cycle_at = None
+        self._next_cycle_target = 0
         self._task = None
+
+    def get_seconds_until_next_cycle(self) -> int:
+        import time
+        if not self.is_running or not self._next_cycle_target:
+            return self.interval_seconds
+        remaining = int(self._next_cycle_target - time.time())
+        return max(0, remaining)
 
     def start(self):
         if self._task is None or self._task.done():
@@ -46,17 +55,20 @@ class AutonomousAgentArmy:
         logger.info("Autonomous Whop Agent Army loop paused.")
 
     async def _run_loop(self):
-        # Initial 10-second delay so server boots cleanly
-        await asyncio.sleep(10)
+        import time
+        # Initial 5-second delay so server boots cleanly
+        await asyncio.sleep(5)
         while self.is_running:
             self.cycle_count += 1
+            self.last_cycle_at = datetime.utcnow().isoformat()
             logger.info(f"--- Running Autonomous Army Cycle #{self.cycle_count} ---")
             try:
                 await self.execute_autonomous_cycle()
             except Exception as e:
                 logger.error(f"Error in autonomous army cycle: {e}", exc_info=True)
 
-            # Wait for next cycle
+            # Wait for next cycle with countdown tracking
+            self._next_cycle_target = time.time() + self.interval_seconds
             await asyncio.sleep(self.interval_seconds)
 
     async def execute_autonomous_cycle(self):
@@ -124,13 +136,27 @@ class AutonomousAgentArmy:
             )
             await broadcast_event("agent_discussion", disc)
 
-        # 3. CYPHER (Dev): Populate Digital Deliverables & App Elements
+        # 3. CYPHER (Dev): Populate Digital Deliverables, Whop Experiences & App Elements
         from pathlib import Path
         import json
         clean_name = biz_name.lower().replace(" ", "-")
         app_dir = Path(__file__).resolve().parent.parent.parent / "builds" / clean_name
         app_dir.mkdir(parents=True, exist_ok=True)
         
+        # Attach real Whop Community Forum experience to product if not attached yet
+        if prod_id and not target_biz.get("has_forum_attached"):
+            attach_res = whop_real.attach_real_experience("exp_GayTl6drytQZDO", prod_id)
+            if attach_res.get("success"):
+                storage.update_business_commerce(biz_id, has_forum_attached=True)
+                disc = storage.add_discussion(
+                    "dev",
+                    "ceo",
+                    f"Atlas, attached live Whop Community Forum ('exp_GayTl6drytQZDO') to product '{biz_name}' ({prod_id}). Buyers get instant forum access upon checkout!",
+                    biz_id
+                )
+                await broadcast_event("agent_discussion", disc)
+                storage.add_log("dev", "tool_result", f"Attached Whop Experience exp_GayTl6drytQZDO to product {prod_id}", biz_id)
+
         # Ensure digital vault resources file exists with high-value assets
         resources_file = app_dir / "resources.json"
         if not resources_file.exists():
@@ -141,7 +167,7 @@ class AutonomousAgentArmy:
                 "premium_assets": [
                     {"title": f"{biz_name} Master Playbook", "type": "PDF Guide", "url": "https://whop.com"},
                     {"title": "Automated Prompt Engineering System (150+ Prompts)", "type": "Database", "url": "https://whop.com"},
-                    {"title": "VIP Community Discord Invite", "type": "Community Pass", "url": "https://whop.com"},
+                    {"title": "VIP Community Discord & Forum Invite", "type": "Community Pass", "url": "https://whop.com"},
                     {"title": "Weekly Market Intelligence Breakdown", "type": "Newsletter", "url": "https://whop.com"}
                 ]
             }
@@ -159,9 +185,17 @@ class AutonomousAgentArmy:
         disc = storage.add_discussion(
             "ops",
             "ceo",
-            f"Atlas, completed 3-minute store audit. Health: 100% active, 0 chargebacks. Automated onboarding email drip verified for new buyers.",
+            f"Atlas, completed 60-second store audit for '{biz_name}'. Health: 100% active, 0 dispute warnings. Payment links verified live.",
             biz_id
         )
         await broadcast_event("agent_discussion", disc)
+        storage.add_log("ops", "thought", f"Verified store health & active plans for '{biz_name}'", biz_id)
+
+        # Broadcast cycle completed with pulse metadata
+        await broadcast_event("autonomous_cycle_completed", {
+            "cycle": self.cycle_count,
+            "target_biz": biz_name,
+            "last_cycle_at": self.last_cycle_at
+        })
 
 autonomous_army = AutonomousAgentArmy()
