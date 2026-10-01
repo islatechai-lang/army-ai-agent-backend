@@ -82,11 +82,12 @@ class AutonomousAgentArmy:
             niche = random.choice(PROFITABLE_NICHES)
             logger.info(f"[ATLAS] Autonomous decision: Launching new business in niche '{niche}'")
             
-            disc = storage.add_discussion(
-                "ceo",
-                "team",
-                f"Team, market signals show high demand in '{niche}'. Initiating new Whop business launch immediately."
+            ceo_msg = await orchestrator.ceo.generate_natural_dialogue(
+                recipient_name="Team",
+                topic=f"Identified high-growth demand in '{niche}' and rolling out business launch immediately",
+                business_name=niche
             )
+            disc = storage.add_discussion("ceo", "team", ceo_msg)
             await broadcast_event("agent_discussion", disc)
             
             # Run launch pipeline
@@ -115,12 +116,13 @@ class AutonomousAgentArmy:
                 whop_real.create_real_promo_code(promo_code, 30)
                 storage.update_business_commerce(biz_id, checkout_url=checkout_url, promo_code=promo_code)
 
-                disc = storage.add_discussion(
-                    "marketer",
-                    "ceo",
-                    f"Atlas, generated active Whop monthly checkout link for '{biz_name}': {checkout_url}. Applied 30% promo code '{promo_code}'.",
-                    biz_id
+                echo_msg = await orchestrator.marketer.generate_natural_dialogue(
+                    recipient_name="Atlas",
+                    topic=f"Generated live monthly checkout link ({checkout_url}) and created discount code {promo_code} for {biz_name}",
+                    business_name=biz_name,
+                    context_facts=f"Checkout URL: {checkout_url}, Promo: {promo_code} (30% off)"
                 )
+                disc = storage.add_discussion("marketer", "ceo", echo_msg, biz_id)
                 await broadcast_event("agent_discussion", disc)
                 await broadcast_event("business_updated", {"id": biz_id, "checkout_url": checkout_url})
 
@@ -128,12 +130,13 @@ class AutonomousAgentArmy:
             # Create a promotional flash campaign
             flash_code = f"FLASH{random.randint(10, 99)}"
             whop_real.create_real_promo_code(flash_code, 40)
-            disc = storage.add_discussion(
-                "marketer",
-                "ops",
-                f"Nova, running a 48h Flash Sale (Code: {flash_code} for 40% off) for '{biz_name}' to drive customer acquisitions.",
-                biz_id
+            echo_msg = await orchestrator.marketer.generate_natural_dialogue(
+                recipient_name="Nova",
+                topic=f"Rolling out limited-time 40% flash discount ({flash_code}) on {biz_name} to test conversion velocity",
+                business_name=biz_name,
+                context_facts=f"Discount code: {flash_code} (40% off)"
             )
+            disc = storage.add_discussion("marketer", "ops", echo_msg, biz_id)
             await broadcast_event("agent_discussion", disc)
 
         # 3. CYPHER (Dev): Populate Digital Deliverables, Whop Experiences & App Elements
@@ -148,12 +151,13 @@ class AutonomousAgentArmy:
             attach_res = whop_real.attach_real_experience("exp_GayTl6drytQZDO", prod_id)
             if attach_res.get("success"):
                 storage.update_business_commerce(biz_id, has_forum_attached=True)
-                disc = storage.add_discussion(
-                    "dev",
-                    "ceo",
-                    f"Atlas, attached live Whop Community Forum ('exp_GayTl6drytQZDO') to product '{biz_name}' ({prod_id}). Buyers get instant forum access upon checkout!",
-                    biz_id
+                cypher_msg = await orchestrator.dev.generate_natural_dialogue(
+                    recipient_name="Atlas",
+                    topic=f"Attached live Whop Community Forum ('exp_GayTl6drytQZDO') to product '{biz_name}' ({prod_id})",
+                    business_name=biz_name,
+                    context_facts=f"Buyers get instant forum access upon checkout"
                 )
+                disc = storage.add_discussion("dev", "ceo", cypher_msg, biz_id)
                 await broadcast_event("agent_discussion", disc)
                 storage.add_log("dev", "tool_result", f"Attached Whop Experience exp_GayTl6drytQZDO to product {prod_id}", biz_id)
 
@@ -172,22 +176,24 @@ class AutonomousAgentArmy:
                 ]
             }
             resources_file.write_text(json.dumps(valuable_content, indent=2), encoding="utf-8")
-            disc = storage.add_discussion(
-                "dev",
-                "marketer",
-                f"Echo, loaded 4 production-grade digital assets into the '{biz_name}' member vault at builds/{clean_name}/resources.json.",
-                biz_id
+            cypher_vault_msg = await orchestrator.dev.generate_natural_dialogue(
+                recipient_name="Echo",
+                topic=f"Populated digital member vault with 4 production resources and guides for {biz_name}",
+                business_name=biz_name,
+                context_facts="Assets stored at builds/{clean_name}/resources.json"
             )
+            disc = storage.add_discussion("dev", "marketer", cypher_vault_msg, biz_id)
             await broadcast_event("agent_discussion", disc)
 
         # 4. NOVA (Ops): Store Audit & Real Stats Pulse
         stats = whop_real.get_real_stats()
-        disc = storage.add_discussion(
-            "ops",
-            "ceo",
-            f"Atlas, completed 60-second store audit for '{biz_name}'. Health: 100% active, 0 dispute warnings. Payment links verified live.",
-            biz_id
+        nova_msg = await orchestrator.ops.generate_natural_dialogue(
+            recipient_name="Atlas",
+            topic=f"Conducted live store audit and metrics review for '{biz_name}'",
+            business_name=biz_name,
+            context_facts=f"Dispute rate 0%, payment links verified live"
         )
+        disc = storage.add_discussion("ops", "ceo", nova_msg, biz_id)
         await broadcast_event("agent_discussion", disc)
         storage.add_log("ops", "thought", f"Verified store health & active plans for '{biz_name}'", biz_id)
 

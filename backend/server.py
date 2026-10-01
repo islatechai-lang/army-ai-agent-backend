@@ -171,6 +171,86 @@ def get_system_diagnostics():
         }
     }
 
+@app.get("/api/whop/sync")
+def sync_whop_data():
+    """Fetches real live products and promo codes from active Whop business account."""
+    from backend.engine.whop_real import whop_real
+    prods_res = whop_real.fetch_all_whop_products()
+    promos_res = whop_real.fetch_all_promo_codes()
+
+    products = []
+    if prods_res.get("success") and isinstance(prods_res.get("data"), list):
+        for p in prods_res["data"]:
+            pid = p.get("id")
+            title = p.get("title") or p.get("name") or "Whop Product"
+            if pid:
+                storage.upsert_synced_product(pid, title)
+                products.append(p)
+    elif prods_res.get("data") and isinstance(prods_res["data"], dict) and "data" in prods_res["data"]:
+        for p in prods_res["data"]["data"]:
+            pid = p.get("id")
+            title = p.get("title") or p.get("name") or "Whop Product"
+            if pid:
+                storage.upsert_synced_product(pid, title)
+                products.append(p)
+
+    promo_codes = []
+    if promos_res.get("success") and isinstance(promos_res.get("data"), list):
+        promo_codes = promos_res["data"]
+    elif promos_res.get("data") and isinstance(promos_res["data"], dict) and "data" in promos_res["data"]:
+        promo_codes = promos_res["data"]["data"]
+
+    return {
+        "success": True,
+        "products": products,
+        "promo_codes": promo_codes,
+        "businesses": storage.get_businesses()
+    }
+
+@app.delete("/api/whop/products/{product_id}")
+async def delete_whop_product(product_id: str):
+    """Deletes a product permanently from Whop and clears local store reference."""
+    from backend.engine.whop_real import whop_real
+    res = whop_real.delete_real_product(product_id)
+    storage.delete_business(product_id)
+    storage.add_log("ops", "tool_result", f"Deleted Whop product: {product_id}")
+    await broadcast_event("business_updated", {"deleted_id": product_id})
+    return {"success": res.get("success", False), "result": res}
+
+@app.delete("/api/whop/promo-codes/{promo_code_id}")
+async def delete_whop_promo_code(promo_code_id: str):
+    """Deletes a promo code from Whop."""
+    from backend.engine.whop_real import whop_real
+    res = whop_real.delete_real_promo_code(promo_code_id)
+    storage.add_log("marketer", "tool_result", f"Deleted Whop promo code: {promo_code_id}")
+    await broadcast_event("promo_code_deleted", {"deleted_id": promo_code_id})
+    return {"success": res.get("success", False), "result": res}
+
+class ForumPostRequest(BaseModel):
+    experience_id: str
+    title: str
+    content: str
+
+@app.post("/api/whop/forum/post")
+async def create_whop_forum_post(req: ForumPostRequest):
+    """Posts a new discussion or update into a live Whop Community Forum."""
+    from backend.engine.whop_real import whop_real
+    res = whop_real.create_real_forum_post(req.experience_id, req.title, req.content)
+    storage.add_log("ops", "tool_result", f"Created forum post '{req.title}' in {req.experience_id}")
+    await broadcast_event("forum_post_created", {"experience_id": req.experience_id, "title": req.title})
+    return res
+
+class ExperienceAttachRequest(BaseModel):
+    experience_id: str
+    product_id: str
+
+@app.post("/api/whop/attach-experience")
+async def attach_whop_experience(req: ExperienceAttachRequest):
+    """Attaches an experience (Forum, Course, App) to a Whop product."""
+    from backend.engine.whop_real import whop_real
+    res = whop_real.attach_real_experience(req.experience_id, req.product_id)
+    return res
+
 class AutonomousToggleRequest(BaseModel):
     running: bool
 

@@ -8,6 +8,7 @@ import { AgentDetailModal } from './components/AgentDetailModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AgentDiscussionFeed } from './components/AgentDiscussionFeed';
 import { DebugInspector } from './components/DebugInspector';
+import { WhopManagerModal } from './components/WhopManagerModal';
 import { Rocket, Sparkles, Building2, DollarSign, Users, RefreshCw, Radio, CheckCircle, ExternalLink, Key, ShoppingBag, Zap, Bug, Activity, Terminal } from 'lucide-react';
 
 const API_BASE = typeof window !== 'undefined' && window.location.port === '5173' ? 'http://localhost:8000' : '';
@@ -30,6 +31,7 @@ export function App() {
   const [nextCycleIn, setNextCycleIn] = useState<number>(60);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isDebugOpen, setIsDebugOpen] = useState<boolean>(false);
+  const [isWhopManagerOpen, setIsWhopManagerOpen] = useState<boolean>(false);
 
   // Initial Fetch & Polling Fallback
   const fetchData = async () => {
@@ -298,6 +300,14 @@ export function App() {
             </button>
 
             <button
+              onClick={() => setIsWhopManagerOpen(true)}
+              className="min-h-[38px] px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 flex items-center justify-center space-x-1.5 transition-colors font-mono cursor-pointer"
+            >
+              <ShoppingBag className="w-3.5 h-3.5" />
+              <span className="text-[11px]">Whop Manager</span>
+            </button>
+
+            <button
               onClick={() => setIsSettingsOpen(true)}
               className="min-h-[38px] px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 flex items-center justify-center space-x-1.5 transition-colors font-mono cursor-pointer"
             >
@@ -468,6 +478,13 @@ export function App() {
         logs={logs}
         businesses={businesses}
         onTriggerPulse={handleTriggerPulse}
+      />
+
+      {/* Live Whop Account Manager Modal */}
+      <WhopManagerModal
+        isOpen={isWhopManagerOpen}
+        onClose={() => setIsWhopManagerOpen(false)}
+        onDataChanged={fetchData}
       />
     </div>
   );

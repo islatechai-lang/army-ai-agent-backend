@@ -152,6 +152,32 @@ class Storage:
                 cursor.execute("UPDATE businesses SET promo_code = ? WHERE id = ?", (promo_code, biz_id))
             conn.commit()
 
+    def delete_business(self, biz_id: str) -> bool:
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM businesses WHERE id = ? OR whop_product_id = ?", (biz_id, biz_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def upsert_synced_product(self, prod_id: str, name: str, handle: Optional[str] = None) -> Dict[str, Any]:
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM businesses WHERE whop_product_id = ? OR name = ?", (prod_id, name))
+            row = cursor.fetchone()
+            if row:
+                cursor.execute("UPDATE businesses SET whop_product_id = ?, name = ? WHERE id = ?", (prod_id, name, row[0]))
+                conn.commit()
+                return {"id": row[0], "whop_product_id": prod_id, "name": name}
+            else:
+                biz_id = str(uuid.uuid4())[:8]
+                h = handle or prod_id.replace("prod_", "biz-")
+                cursor.execute(
+                    "INSERT INTO businesses (id, whop_biz_id, whop_product_id, name, handle, niche, category, status, mrr_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (biz_id, "biz_wDSHPXqL0Ew9Jr", prod_id, name, h, "Digital Whop Product", "Digital Products", "active", 0)
+                )
+                conn.commit()
+                return {"id": biz_id, "whop_product_id": prod_id, "name": name, "handle": h}
+
     def get_businesses(self) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
             cursor = conn.cursor()

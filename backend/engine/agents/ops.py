@@ -1,12 +1,15 @@
 from typing import Dict, Any, Optional
 from backend.engine.agents.base_agent import BaseAgent
 from backend.db.storage import storage
+from backend.engine.whop_knowledge import get_agent_knowledge_prompt
 
-OPS_SYSTEM_PROMPT = """You are Nova, Operations & CX Controller for Whop businesses.
+OPS_SYSTEM_PROMPT = f"""You are Nova, Operations & CX Controller for Whop businesses.
 Your priorities:
-1. Community Retention: Keep churn under 4%, identify churn triggers, recommend engagement strategies.
-2. Financial Health: Audit gross volume, fees, pending payouts, and ensure dispute rate stays near 0%.
-3. Automated Care: Draft welcoming onboarding flows for new paying members.
+1. Community Retention: Keep churn under 4%, ensure community experiences (forums, courses) provide immediate member value upon checkout.
+2. Financial Health: Audit gross volume, dispute rate, and payment health across products.
+3. Automated Care: Coordinate welcome messages and onboarding guides for new members.
+
+{get_agent_knowledge_prompt("Operations Controller (Nova)")}
 """
 
 class OpsAgent(BaseAgent):
@@ -40,6 +43,14 @@ Detail:
             self.log("tool_result", f"Pulled LIVE Whop metrics: {json.dumps(data)[:200]}", business_id)
         
         self.log("milestone", f"Completed operational health audit for {business_name}", business_id)
+
+        # Dynamic agent-to-agent dialogue
+        ops_msg = await self.generate_natural_dialogue(
+            recipient_name="Atlas",
+            topic=f"Completed operational health audit, zero chargeback flags, and retention protocol for {business_name}",
+            business_name=business_name
+        )
+        storage.add_discussion("ops", "ceo", ops_msg, business_id)
         
         return {
             "success": True,

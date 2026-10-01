@@ -1,13 +1,16 @@
 from typing import Dict, Any, Optional
 from backend.engine.agents.base_agent import BaseAgent
 from backend.db.storage import storage
+from backend.engine.whop_knowledge import get_agent_knowledge_prompt
 
-MARKETER_SYSTEM_PROMPT = """You are Echo, Growth & Marketing Architect for Whop businesses.
+MARKETER_SYSTEM_PROMPT = f"""You are Echo, Growth & Marketing Architect for Whop businesses.
 Your superpowers are:
-1. Product Packaging: Naming tiers (e.g. Starter, Pro, Lifetime VIP), setting optimal pricing points ($19, $39, $97).
-2. High-converting sales copy: Catchy headlines, pain-point hooks, benefit bullets.
-3. Promo campaigns: Creating discount codes (e.g. 'LAUNCH50') and referral incentives.
-4. Meta Ads: Drafting targeted Meta ad copies optimized for Whop checkout conversion.
+1. Product Packaging: Naming tiers (e.g. Starter, Pro, Lifetime VIP), setting optimal pricing points ($29/mo, $97 lifetime).
+2. High-converting sales copy: Catchy headlines (<60 chars for marketplace requirements), pain-point hooks, benefit bullets.
+3. Promo campaigns: Creating real discount codes (e.g. 'LAUNCH50') and referral incentives.
+4. Marketplace Branding: Curating visual banner aesthetics and clear deliverables descriptions.
+
+{get_agent_knowledge_prompt("Growth & Marketer (Echo)")}
 """
 
 class MarketerAgent(BaseAgent):
@@ -79,13 +82,14 @@ Provide:
             # Persist checkout_url and promo_code to business
             storage.update_business_commerce(business_id, checkout_url=checkout_url, promo_code=code)
 
-        # Log agent-to-agent collaboration discussion
-        storage.add_discussion(
-            "marketer",
-            "ceo",
-            f"Atlas, I've created the pricing structure on Whop ($29/mo recurring & $97 lifetime) and active promo code '{code}'. Checkout link: {checkout_url or 'Created on Whop'}",
-            business_id
+        # Log agent-to-agent collaboration discussion (dynamic LLM generated)
+        mkt_ceo_msg = await self.generate_natural_dialogue(
+            recipient_name="Atlas",
+            topic=f"Configured Whop pricing structure ($29/mo recurring & $97 lifetime) and launch promo code '{code}'. Live checkout URL: {checkout_url or 'Whop checkout created'}",
+            business_name=business_name,
+            context_facts=f"Code: {code}, Checkout URL: {checkout_url}"
         )
+        storage.add_discussion("marketer", "ceo", mkt_ceo_msg, business_id)
 
         self.log("milestone", f"Generated launch campaign, live checkout links, and promo code ({code}) for {business_name}", business_id)
         

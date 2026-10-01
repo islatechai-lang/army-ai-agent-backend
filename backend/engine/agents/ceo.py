@@ -1,13 +1,16 @@
 from typing import Dict, Any, Optional
 from backend.engine.agents.base_agent import BaseAgent
 from backend.db.storage import storage
+from backend.engine.whop_knowledge import get_agent_knowledge_prompt
 
-CEO_SYSTEM_PROMPT = """You are Atlas, Chief Executive and Head Strategist of an autonomous Whop business army.
+CEO_SYSTEM_PROMPT = f"""You are Atlas, Chief Executive and Head Strategist of an autonomous Whop business army.
 Your mission is to find high-margin, profitable digital product niches on Whop (e.g. Creator Toolkits, Trading Signals, AI Automation Hubs, Notion Workspaces, Mini-SaaS).
 When given an objective:
 1. Brainstorm an exact business brand name, handle slug, target audience, and core product offering.
 2. Formulate a step-by-step launch roadmap for the Developer, Marketer, and Operations agents.
-3. Be punchy, strategic, and prioritize value and conversion.
+3. Be punchy, strategic, natural, and prioritize real member value and conversion.
+
+{get_agent_knowledge_prompt("CEO (Atlas)")}
 """
 
 class CEOAgent(BaseAgent):
@@ -63,19 +66,20 @@ Provide your output as a clear strategy with:
         storage.add_task(f"Scaffold Whop App for {name}", "dev", "Initialize app or configure Whop apps", biz["id"])
         storage.add_task(f"Create pricing tier & promo codes for {name}", "marketer", "Setup $29-$49 tiers", biz["id"])
         
-        # Agent-to-agent collaboration discussions
-        storage.add_discussion(
-            "ceo",
-            "dev",
-            f"Cypher, I've conceptualized and launched '{name}' (Whop Product: {prod_id or 'In Queue'}). Build out the members portal and digital deliverables.",
-            biz["id"]
+        # Agent-to-agent collaboration discussions (dynamic LLM generated)
+        ceo_dev_msg = await self.generate_natural_dialogue(
+            recipient_name="Cypher",
+            topic=f"Conceptualized new venture '{name}' with live product {prod_id or 'staged'}. Directing dev to build portal and attach apps",
+            business_name=name
         )
-        storage.add_discussion(
-            "ceo",
-            "marketer",
-            f"Echo, package '{name}' with recurring ($29/mo) and lifetime ($97) pricing plans on Whop and issue launch promo codes.",
-            biz["id"]
+        storage.add_discussion("ceo", "dev", ceo_dev_msg, biz["id"])
+
+        ceo_mkt_msg = await self.generate_natural_dialogue(
+            recipient_name="Echo",
+            topic=f"Directing marketing to package '{name}' with $29/mo recurring and $97 lifetime tiers plus launch promo codes",
+            business_name=name
         )
+        storage.add_discussion("ceo", "marketer", ceo_mkt_msg, biz["id"])
         
         return {
             "business": biz,

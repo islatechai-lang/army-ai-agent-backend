@@ -101,3 +101,46 @@ class BaseAgent:
             "executed_tools": executed_tools,
             "model_used": model_used
         }
+
+    async def generate_natural_dialogue(
+        self,
+        recipient_name: str,
+        topic: str,
+        business_name: Optional[str] = None,
+        context_facts: Optional[str] = None
+    ) -> str:
+        """
+        Generates casual, sharp, collaborative, non-repetitive agent dialogue using the LLM mesh.
+        """
+        recent = storage.get_recent_discussions(3)
+        history_lines = [f"{d['sender_id'].title()}: {d['message']}" for d in recent]
+        history_str = "\n".join(history_lines) if history_lines else "No previous discussions yet."
+
+        prompt = f"""You are {self.name} ({self.role}) in an agile Whop business startup team.
+Business context: '{business_name or 'Whop Army Portfolio'}'.
+Recent team chat:
+{history_str}
+
+Key action or context you want to convey: {topic}.
+Additional facts: {context_facts or 'None'}.
+
+Instructions:
+- Write a short (1-2 sentences), natural, casual, and cooperative message directed to @{recipient_name}.
+- Speak like a sharp co-founder/operator on Slack. Avoid rigid corporate jargon, fake enthusiasm, or repetitive template greetings.
+- Do NOT output quotation marks or prefixes like '{self.name}:'. Just the conversational message text itself."""
+
+        res = await llm_mesh.complete(
+            messages=[
+                {"role": "system", "content": f"You are {self.name}, speaking casually in a high-speed AI startup team chat."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.85
+        )
+
+        text = res.get("content", "").strip() if res.get("success") else ""
+        import re
+        text = re.sub(r'^[A-Za-z]+:\s*', '', text)
+        text = text.strip('"\'')
+        if not text:
+            text = f"@{recipient_name} sync: {topic}."
+        return text

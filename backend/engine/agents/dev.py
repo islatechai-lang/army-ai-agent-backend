@@ -1,14 +1,17 @@
 from typing import Dict, Any, Optional
 from backend.engine.agents.base_agent import BaseAgent
 from backend.db.storage import storage
+from backend.engine.whop_knowledge import get_agent_knowledge_prompt
 
-DEV_SYSTEM_PROMPT = """You are Cypher, Lead Software Engineer for Whop applications.
+DEV_SYSTEM_PROMPT = f"""You are Cypher, Lead Software Engineer for Whop applications.
 You know the Whop developer ecosystem inside-out:
 - You know how to scaffold apps with `whop apps init --name <Name> --app_type b2c_app`.
-- You know how to integrate Whop Elements (checkout components, iframe authentication, webhook listeners).
+- You know how to attach native experiences (Public Forums, Courses, File Vaults, Chat Channels).
+- You know how to seed forum discussion threads and structured course curricula so buyers get immediate value.
 - You know how to deploy apps with `whop apps deploy`.
 - For consequential deployments or server changes, you request human approval.
-Write clean, modern Next.js and TypeScript integrations that deliver high value to community members.
+
+{get_agent_knowledge_prompt("Fullstack Engineer (Cypher)")}
 """
 
 class DevAgent(BaseAgent):
@@ -94,6 +97,15 @@ export default function StoreFront() {{
             business_id=business_id
         )
         self.log("milestone", f"App codebase generated at builds/{slug}/. Staged for production deploy (Approval #{app_id})", business_id)
+
+        # Dynamic agent-to-agent dialogue
+        dev_msg = await self.generate_natural_dialogue(
+            recipient_name="Atlas",
+            topic=f"Finished scaffolding Next.js frontend and member portal for {app_name}. Ready for deployment approval #{app_id}.",
+            business_name=app_name,
+            context_facts=f"Approval ID #{app_id}, Directory builds/{slug}/"
+        )
+        storage.add_discussion("dev", "ceo", dev_msg, business_id)
         
         return {
             "success": True,

@@ -348,5 +348,45 @@ class WhopRealEngine:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def fetch_all_whop_products(self) -> Dict[str, Any]:
+        """Fetches all real products from the active Whop account."""
+        return self.execute_cli(["products", "list", "--format", "json"])
+
+    def fetch_all_promo_codes(self) -> Dict[str, Any]:
+        """Fetches all promo codes for the active Whop account."""
+        return self.execute_cli(["promo-codes", "list", "--format", "json"])
+
+    def delete_real_product(self, product_id: str) -> Dict[str, Any]:
+        """Permanently deletes a product from Whop."""
+        return self.execute_cli(["products", "delete", product_id, "--format", "json"])
+
+    def delete_real_promo_code(self, promo_code_id: str) -> Dict[str, Any]:
+        """Permanently deletes a promo code from Whop."""
+        return self.execute_cli(["promo-codes", "delete", promo_code_id, "--format", "json"])
+
+    def create_real_forum_post(self, experience_id: str, title: str, content: str) -> Dict[str, Any]:
+        """
+        Posts a new topic or discussion thread in a Whop forum experience.
+        POST https://api.whop.com/api/v1/forum_posts
+        """
+        api_key = self.get_api_key()
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "experience_id": experience_id,
+            "title": title,
+            "content": content
+        }
+        try:
+            with httpx.Client(headers=headers, timeout=15.0, verify=False) as client:
+                res = client.post("https://api.whop.com/api/v1/forum_posts", json=payload)
+                if res.status_code in [200, 201]:
+                    return {"success": True, "data": res.json()}
+                return {"success": False, "status_code": res.status_code, "error": res.text}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
 # Global Singleton
 whop_real = WhopRealEngine()
