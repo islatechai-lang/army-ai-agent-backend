@@ -90,7 +90,7 @@ class WhopRealEngine:
     # Real Commerce Actions
     def create_real_product(self, name: str, description: str = "") -> Dict[str, Any]:
         """Creates a real product under the active Whop business account."""
-        args = ["products", "create", "--name", name]
+        args = ["products", "create", "--title", name]
         if description:
             args.extend(["--description", description])
         args.extend(["--format", "json"])
@@ -100,9 +100,36 @@ class WhopRealEngine:
         """Lists real products from the active Whop business."""
         return self.execute_cli(["products", "list", "--format", "json"])
 
+    def get_business_info(self) -> Dict[str, Any]:
+        return self.check_auth_status()
+
     def create_real_promo_code(self, code: str, discount_percent: int) -> Dict[str, Any]:
         """Creates a real promotional discount code on Whop."""
-        args = ["promo-codes", "create", "--code", code, "--discount-percent", str(discount_percent), "--format", "json"]
+        account_id = os.getenv("WHOP_BIZ_ID")
+        if not account_id:
+            biz_info = self.check_auth_status()
+            if isinstance(biz_info, dict):
+                account_id = (
+                    biz_info.get("account", {}).get("id")
+                    or biz_info.get("identity", {}).get("id")
+                    or biz_info.get("company", {}).get("id")
+                    or biz_info.get("id")
+                )
+        if not account_id:
+            account_id = "biz_wDSHPXqL0Ew9Jr"
+
+        args = [
+            "promo-codes", "create",
+            "--account_id", account_id,
+            "--code", code,
+            "--amount_off", str(discount_percent),
+            "--promo_type", "percentage",
+            "--base_currency", "usd",
+            "--new_users_only",
+            "--promo_duration_months", "1",
+            "--unlimited_stock",
+            "--format", "json"
+        ]
         return self.execute_cli(args)
 
     def get_real_stats(self) -> Dict[str, Any]:

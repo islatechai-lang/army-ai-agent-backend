@@ -39,7 +39,9 @@ Outline the exact technical components:
         # Create real physical code files for the Whop App
         from pathlib import Path
         import re
-        slug = re.sub(r'[^a-z0-9\-]', '', app_name.lower().replace(' ', '-'))
+        import json
+        clean_name = re.sub(r'[\*\#\_`]', '', app_name).strip()
+        slug = re.sub(r'[^a-z0-9\-]', '', clean_name.lower().replace(' ', '-')) or "whop-app"
         app_dir = Path(__file__).resolve().parent.parent.parent.parent / "builds" / slug
         app_dir.mkdir(parents=True, exist_ok=True)
         

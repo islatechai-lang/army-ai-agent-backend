@@ -40,11 +40,23 @@ Provide your output as a clear strategy with:
         handle_match = re.search(r"handle(?:\s*slug)?[:\-]?\s*['\"]?([a-z0-9\-]+)['\"]?", content, re.IGNORECASE)
         name_match = re.search(r"business name[:\-]?\s*['\"]?([^'\"\n\r]+)['\"]?", content, re.IGNORECASE)
         
-        name = name_match.group(1).strip() if name_match else f"{niche_prompt.title()} Pro"
-        handle = handle_match.group(1).strip() if handle_match else f"{niche_prompt.lower().replace(' ', '-')}-{storage.get_businesses().__len__() + 1}"
+        raw_name = name_match.group(1).strip() if name_match else f"{niche_prompt.title()} Pro"
+        raw_handle = handle_match.group(1).strip() if handle_match else f"{niche_prompt.lower().replace(' ', '-')}-{storage.get_businesses().__len__() + 1}"
+        
+        name = re.sub(r'[\*\#\_`]', '', raw_name).strip() or f"{niche_prompt.title()} Pro"
+        handle = re.sub(r'[^a-z0-9\-]', '', raw_handle.lower().replace(' ', '-')) or f"biz-{storage.get_businesses().__len__() + 1}"
         
         biz = storage.create_business(name=name, handle=handle, niche=niche_prompt)
         self.log("milestone", f"Officially registered new Whop business: '{name}' (@{handle})", biz["id"])
+        
+        # Create real product on Whop via whop_real
+        from backend.engine.whop_real import whop_real
+        prod_res = whop_real.create_real_product(name, f"Official membership & digital portal for {name}")
+        prod_data = prod_res.get("data") if prod_res.get("success") else None
+        prod_id = prod_data.get("id") if isinstance(prod_data, dict) else None
+        if prod_id:
+            self.log("tool_result", f"Successfully created LIVE Whop product: {prod_id} ('{name}')", biz["id"])
+            biz["whop_product_id"] = prod_id
         
         # Add kickoff task for dev and marketing
         storage.add_task(f"Scaffold Whop App for {name}", "dev", "Initialize app or configure Whop apps", biz["id"])
@@ -52,6 +64,7 @@ Provide your output as a clear strategy with:
         
         return {
             "business": biz,
+            "whop_product": prod_res,
             "strategy": content,
             "model_used": res.get("model_used")
         }

@@ -33,10 +33,26 @@ Provide:
 """
         res = await self.think_and_act(prompt, business_id=business_id)
         
-        self.log("milestone", f"Generated launch campaign and promo codes for {business_name}", business_id)
+        # Extract promo code or generate launch code
+        import re
+        import random
+        content = res.get("content", "")
+        code_match = re.search(r"promo\s*code[:\-]?\s*['\"]?([A-Z0-9_\-]+)['\"]?", content, re.IGNORECASE)
+        code = code_match.group(1).upper() if code_match else f"VIP{random.randint(10, 99)}"
+        
+        from backend.engine.whop_real import whop_real
+        promo_res = whop_real.create_real_promo_code(code, 50)
+        if promo_res.get("success"):
+            self.log("tool_result", f"Successfully created LIVE Whop Promo Code: {code} (50% off)", business_id)
+        else:
+            self.log("tool_result", f"Promo code attempt for {code}: {promo_res.get('error', 'already exists or queued')}", business_id)
+
+        self.log("milestone", f"Generated launch campaign and live promo code ({code}) for {business_name}", business_id)
         
         return {
             "success": True,
             "campaign": res.get("content"),
+            "promo_code": code,
+            "promo_result": promo_res,
             "model_used": res.get("model_used")
         }

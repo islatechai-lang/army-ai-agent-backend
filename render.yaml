@@ -3,7 +3,7 @@ services:
     name: whop-agent-army
     env: python
     plan: free
-    buildCommand: "npm --prefix frontend install && npm --prefix frontend run build && pip install -r requirements.txt"
+    buildCommand: "npm --prefix frontend install && npm --prefix frontend run build && pip install -r requirements.txt && npm install -g @whop/cli"
     startCommand: "uvicorn backend.server:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION
@@ -14,3 +14,7 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: WHOP_API_KEY
+        sync: false
+      - key: NODE_TLS_REJECT_UNAUTHORIZED
+        value: "0"

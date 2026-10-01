@@ -30,10 +30,20 @@ Detail:
 3. Dispute defense checklist to maintain 0% chargebacks
 """
         res = await self.think_and_act(prompt, business_id=business_id)
+        
+        # Pull live Whop stats
+        from backend.engine.whop_real import whop_real
+        import json
+        stats_res = whop_real.get_real_stats()
+        if stats_res.get("success"):
+            data = stats_res.get("data", {})
+            self.log("tool_result", f"Pulled LIVE Whop metrics: {json.dumps(data)[:200]}", business_id)
+        
         self.log("milestone", f"Completed operational health audit for {business_name}", business_id)
         
         return {
             "success": True,
             "audit": res.get("content"),
+            "real_stats": stats_res,
             "model_used": res.get("model_used")
         }
